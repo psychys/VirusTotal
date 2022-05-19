@@ -1,0 +1,66 @@
+---
+title: 'ABP: VirusTotal'
+author: "Sergio de la Torre Vázquez y Pedro Sánchez Machuca"
+date: '2022-05-16'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Importamos librerías
+```{r warning=FALSE, message=FALSE}
+library(jsonlite)
+library(curl)
+library(tidyjson)
+library(dplyr)
+library(parallel)
+library(stringr)
+```
+
+Desde los JSON creamos un dataset
+```{r warning=FALSE, message=FALSE}
+archivos <- list.files("C:/Users/sergi/Desktop/Universidad/4ºA ING. INFORMATICA/Segundo Cuatrimestre/Laboratorio de Computación Científica/Android")
+
+funcion <- function(x) {
+  path <- "C:/Users/sergi/Desktop/Universidad/4ºA ING. INFORMATICA/Segundo Cuatrimestre/Laboratorio de Computación Científica/Android"
+  jsonlite::read_json(path = str_c(path, "/", x),simplifyVector = TRUE)
+}
+
+cluster <- makeCluster(2)
+clusterExport(cluster, "archivos")
+clusterEvalQ(cluster, library(stringr))
+clusterEvalQ(cluster, library(jsonlite))
+
+lista_json <- parLapply(cluster, archivos, funcion)
+stopCluster(cluster)
+
+tabla_json <- lista_json %>% 
+  spread_all()
+
+dep_json <- tabla_json %>% 
+  select(c(document.id, vhash, submission.date, scan_date, first_seen, total,
+           size, times_submitted, sha256, type, scan_id, unique_sources, 
+           positives, ssdeep, md5, permalink, sha1, last_seen, 
+           additional_info.trid, additional_info.magic, 
+           submission.submitter_region, submission.date,
+           submission.submitter_country, submission.filename,
+           additional_info.exiftool.FileType, 
+           additional_info.exiftool.ZipFileName, 
+           additional_info.androguard.AndroidVersionCode, 
+           additional_info.androguard.Package,
+           `scans.CAT-QuickHeal.result`, scans.K7GW.result,
+           scans.Trustlook.result, scans.Cyren.result,
+           scans.SymantecMobileInsight.result, scans.Symantec.result,
+           `scans.ESET-NOD32.result`, scans.Kaspersky.result,
+           scans.DrWeb.result, `scans.McAfee-GW-Edition.result`,
+           scans.McAfee.result, `scans.Avast-Mobile.result`, scans.Avast.result,
+           scans.Avira.result, scans.Microsoft.result,
+           scans.BitDefenderFalx.result, `scans.AhnLab-V3.result`,
+           scans.Fortinet.result))
+
+dep_json <- dep_json[!is.na(dep_json$vhash),]
+```
+
+
