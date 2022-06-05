@@ -1,0 +1,76 @@
+---
+title: "Dplyr_VirusTotal"
+author: "Pedro Sánchez"
+date: "26/5/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Exploración del dataset y estudio de los datos mediante DPLYR
+Vamos a intentar ver cuales pueden ser las columnas más interesantes del dataset para explorarlo en profundidad y sacar nuestras conclusiones. Primero vamos a importar los datos y cargar las librerias.
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(dplyr)
+library(tidyverse)
+library(regexr)
+
+#aditional_info.androguard.AndroidVersionName
+#scans.Lionic.detected
+datos <- read.csv("datos_full.csv")
+
+datos_red <- read.csv("datos.csv") #Version recortada de los datos
+
+
+
+
+
+```
+
+Vamos a empezar con algo sencillo, vamos a agrupar todos los positivos que aparecen en nuestros datos según en que país haya aparecido; así sabremos en que país saltan más deteccioness.
+```{r}
+positivos_pais <- datos_red %>%
+  select(positives,submission.submitter_country)
+
+detecciones <- data.frame(pais=unique(datos_red$submission.submitter_country), pos = NA)
+
+for(i in detecciones$pais){
+  aux<- positivos_pais %>%
+    filter(submission.submitter_country == i) %>%
+    select(positives)
+  detecciones$pos[which(detecciones$pais ==i)] <- sum(aux)
+}#end for
+detecciones <- arrange(detecciones,desc(pos))
+detecciones <- na.omit(detecciones)
+knitr::kable(detecciones)
+```
+
+
+Vamos a ver contar y ordenar segun el valores nulos de cada antivirus.
+```{r}
+resultados <- datos_red %>%
+  select(scans.CAT.QuickHeal.result,scans.K7GW.result,scans.Trustlook.result,scans.Cyren.result,scans.SymantecMobileInsight.result,scans.Symantec.result,scans.ESET.NOD32.result,scans.Kaspersky.result,scans.DrWeb.result,scans.McAfee.GW.Edition.result,scans.McAfee.result,scans.Avast.Mobile.result,scans.Avast.result,scans.Avira.result,scans.Microsoft.result,scans.BitDefenderFalx.result,scans.AhnLab.V3.result,scans.Fortinet.result)
+
+
+negativos <- data.frame(antivirus = colnames(resultados))
+negativos$detecciones <- NA
+
+
+
+for(i in 1:length(negativos$antivirus)){
+  aux<- resultados %>%
+    select(negativos$antivirus[i])
+  negativos$detecciones[i] <- length(aux[is.na(aux)])
+}#end for
+
+negativos<-arrange(negativos, desc(detecciones))
+
+```
+
+Estos negativos pueden significar dos cosas:
+- En primer lugar puede significar que el anitivirus es malo y no detecta todas los ficheros corruptos que debería.
+- Por otra parte puede significar que es bueno y que, mientras que los demás antivirus detectan cualquier fichero como un virus, estos no los reconocen.
+
+Esto podemos tratar de averiguarlo de la siguiente manera.
+
