@@ -1,0 +1,259 @@
+---
+title: "Text Mining en Whatsapp"
+author: "Sergio de la Torre Vázquez"
+date: '2022-06-03'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Importamos librerías
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)
+library(tidytext)
+library(magrittr)
+library(rwhatsapp)
+library(lubridate)
+library(kableExtra)
+library(tidyquant)
+library(dplyr)
+library(RColorBrewer)
+library(ggimage)
+library(stopwords)
+# https://cosmoduende.medium.com/análisis-de-chats-en-whataapp-parte-1-análisis-de-texto-y-visualización-de-datos-con-r-6d254c39029d
+```
+
+Leemos un chat de Whastapp y lo preprocesamos
+```{r warning=FALSE, message=FALSE}
+conver <- rwa_read("C:/Users/sergi/Desktop/Universidad/4ºA ING. INFORMATICA/Segundo Cuatrimestre/Laboratorio de Computación Científica/ChatsWhatsapp/WhatsApp Chat - María la Mejor/_chat.txt")
+
+conver <- conver %>% 
+  select(time, author, text, emoji)
+
+colnames(conver) <- c("fecha", "autor", "texto", "emoji")
+
+conver <- conver %>% 
+  mutate(multimedia = str_detect(texto, "<adjunto")) %>% 
+  mutate(npalabras = nchar(texto))
+
+conver$autor <- as.character(conver$autor)
+
+conver$autor[str_detect(conver$autor, "María")] <- "María"
+
+conver$texto[conver$texto == ""] <- NA
+conver$texto[str_detect(conver$texto, "Eliminaste")] <- NA
+conver$texto[str_detect(conver$texto, "Se eliminó")] <- NA
+
+conver <- na.omit(conver)
+
+converExt <- conver %>% 
+  mutate(estacion = case_when(
+    fecha >= dmy_hms(22092021000002) & fecha <= dmy_hms(21122021000001) ~ "Otoño 2021",
+    fecha >= dmy_hms(21122021000002) & fecha <= dmy_hms(20032022000001) ~ "Invierno 2021-2022",
+    fecha >= dmy_hms(20032022000002) ~ "Primavera 2022",
+    T ~ "Fuera de rango")) %>% 
+  mutate(estacion = factor(estacion))
+```
+
+Visualización
+```{r warning=FALSE, message=FALSE}
+tiempo <- conver$fecha[length(conver$fecha)]-conver$fecha[1]
+tiemponum <- as.integer(tiempo)
+
+nummensajes <- length(conver$fecha)
+
+numusuarios <- length(unique(conver$autor))
+
+str_c("La conversación dura ", tiemponum, " dias, desde ", conver$fecha[1], 
+      " hasta ", conver$fecha[nummensajes], ", hay ", nummensajes,
+      " mensajes y tiene ", numusuarios, " usuarios")
+```
+
+Vista previa de la conversación
+```{r warning=FALSE, message=FALSE}
+conver2 <- conver %>%
+  mutate(fecha = as.Date(fecha)) %>% 
+  count(fecha, name = "mensajes")
+
+ggplot(conver2, aes(x=fecha, y=mensajes))+
+  geom_line() + ggtitle("Mensajes a lo largo del tiempo") + theme_minimal()
+```
+
+Mensajes por usuario
+```{r warning=FALSE, message=FALSE}
+conver3 <- conver %>% 
+  count(autor, name = "mensajes")
+
+ggplot(conver3, aes(x=autor, y=mensajes)) + 
+  geom_col(fill = c(2, 3)) + geom_text(aes(label=conver3$mensajes)) +
+  coord_flip() + ggtitle("Número de mensajes") + theme_minimal()
+
+```
+
+Palabras por usuario
+```{r warning=FALSE, message=FALSE}
+conver4 <- conver %>%
+  group_by(autor) %>% 
+  summarise(numpalabras = sum(npalabras))
+
+ggplot(conver4, aes(x=autor, y=numpalabras))+
+  geom_col(fill = c(2, 3)) + geom_text(aes(label=conver4$numpalabras)) + 
+  coord_flip() + ggtitle("Palabras por usuario") + theme_minimal()
+```
+
+Longitud media del mensaje
+```{r warning=FALSE, message=FALSE}
+conver5 <- conver %>%
+  group_by(autor) %>% 
+  summarise(numpalabras = mean(npalabras))
+
+ggplot(conver5, aes(x=autor, y=numpalabras))+
+  geom_col(fill = c(2, 3)) + geom_text(aes(label=conver5$numpalabras)) + 
+  coord_flip() + ggtitle("Longitud media de mensaje") + theme_minimal()
+```
+
+Días más hablados
+```{r warning=FALSE, message=FALSE}
+conver6 <- conver2 %>% 
+  arrange(desc(mensajes))
+
+conver6[c(1:5),]
+```
+
+Mensajes por día
+```{r warning=FALSE, message=FALSE}
+conver7 <- converExt %>% 
+  mutate(fecha = as.Date(fecha)) %>% 
+  group_by(estacion) %>%
+  count(fecha, name = "mensajes")
+
+paleta <- brewer.pal(3,"Set1")[c(2, 1, 3)]
+
+ggplot(conver7, aes(x=fecha, y=mensajes, fill=estacion))+
+  geom_bar(stat="identity") + scale_fill_manual(values=paleta) +
+  ggtitle("Mensajes por día", "Frecuencia por estación del año") + 
+  theme_minimal() + theme(legend.title=element_blank(), legend.position="bottom")
+```
+
+Frecuencia de mensajes por día de la semana
+```{r warning=FALSE, message=FALSE}
+conver8 <- converExt %>% 
+  mutate(dia.num = wday(fecha), dia.nombre = weekdays(fecha)) %>% 
+  group_by(estacion, dia.num, dia.nombre) %>% 
+  count(name = "mensajes")
+
+ggplot(conver8, aes(x=reorder(dia.nombre, -dia.num), y=mensajes, fill=estacion))+
+  geom_bar(stat="identity") + scale_fill_manual(values=paleta) + ylab("") + xlab("") +
+  coord_flip() + ggtitle("Mensajes por día de la semana", "Frecuencia por estación del año") + 
+  theme_minimal() + theme(legend.title=element_blank(), legend.position="bottom")
+```
+
+Frecuencia de mensajes por hora
+```{r warning=FALSE, message=FALSE}
+diasemana <- c("domingo", "lunes", "martes", "miárcoles", "jueves", "viernes",
+               "sábado")
+names(diasemana) <- 1:7
+
+conver9 <- converExt %>% 
+  mutate(hora = hour(fecha), dia.num = wday(fecha), dia.nombre = weekdays(fecha)) %>% 
+  count(estacion, dia.num, dia.nombre, hora, name = "mensajes")
+
+ggplot(conver9, aes(x=hora, y=mensajes, fill=estacion))+
+  geom_bar(stat="identity") + scale_fill_manual(values=paleta) + 
+  ylab("Número de mensajes") + xlab("Horario") +
+  ggtitle("Mensajes por hora", "Frecuencia por estación del año") + 
+  facet_wrap(~conver9$dia.num, ncol=7, labeller = labeller(diasemana)) +
+  theme_minimal() + theme(legend.title=element_blank(), legend.position="bottom",
+                          panel.spacing.x = unit(0.0, "lines"))
+```
+
+Emojis más usados
+```{r warning=FALSE, message=FALSE}
+conver10 <- converExt %>% 
+  unnest(emoji) %>% 
+  mutate(emoji = str_sub(emoji, end = 1)) %>% 
+  count(emoji) %>% 
+  top_n(20, n) %>% 
+  arrange(desc(n)) %>% 
+  mutate(emoji_url = map_chr(emoji, ~paste0("https://abs.twimg.com/emoji/v2/72x72/",
+                                            as.hexmode(utf8ToInt(.x)), ".png")))
+
+ggplot(conver10, aes(x=reorder(emoji, n), y=n)) + 
+  geom_col(aes(fill=n), show.legend = FALSE, width = .2) +
+  geom_point(aes(color=n), show.legend = FALSE, size = 3) +
+  geom_image(aes(image = emoji_url), size = .045) +
+  scale_fill_gradient(low = "#2b83ba", high = "#d7191c") +
+  scale_color_gradient(low = "#2b83ba", high = "#d7191c") +
+  ylab("Veces usado") + xlab("Emoji") +
+  ggtitle("Emojis usados") + coord_flip() + theme_minimal()
+```
+
+Emojis más usados por usuario
+```{r warning=FALSE, message=FALSE}
+conver11 <- converExt %>% 
+  unnest(emoji) %>% 
+  mutate(emoji = str_sub(emoji, end = 1)) %>% 
+  count(autor, emoji, sort = TRUE) %>% 
+  group_by(autor) %>% 
+  top_n(8, n) %>% 
+  slice(1:8) %>% 
+  mutate(emoji_url = map_chr(emoji, ~paste0("https://abs.twimg.com/emoji/v2/72x72/",
+                                            as.hexmode(utf8ToInt(.x)), ".png")))
+
+ggplot(conver11, aes(x=reorder(emoji, -n), y=n)) + 
+  geom_col(aes(fill=autor, group=autor), show.legend = FALSE, width = .20) +
+  geom_image(aes(image = emoji_url), size = .13) +
+  ylab("Veces usado") + xlab("Emoji") +
+  facet_wrap(~autor, ncol=5, scales="free") +
+  ggtitle("Emojis usados por usuario") + theme_minimal() +
+  theme(axis.text.x = element_blank())
+```
+
+Palabras más usadas
+```{r warning=FALSE, message=FALSE}
+palabras <- c(stopwords(language = "es"), "adjunto" , "2022", "audio", "opus",
+              "03", "04", "05", "11", "12", "14", "15", "13", "16", "17",
+              "imagen", "omitida", "webp", "01", "02", "06", "07", "08", 
+              "09", "10", "18", "19", "20", "21", "22", "23", "24", "25", 
+              "26", "27", "28", "29", "00", "sticker", "photo", "jpg", "2021",
+              "30", "31", "33")
+
+conver12 <- converExt %>% 
+  unnest_tokens(input = texto, output = word) %>% 
+  filter(!word %in% palabras) %>% 
+  count(word) %>% 
+  top_n(30, n) %>% 
+  arrange(desc(n))
+
+ggplot(conver12, aes(x=reorder(word, n), y=n, fill=n, color=n))+
+  geom_col(show.legend = FALSE, width = .1) +
+  geom_point(show.legend = FALSE, size = 3) +
+  scale_fill_gradient(low = "#2b83ba", high = "#d7191c") + 
+  scale_color_gradient(low = "#2b83ba", high = "#d7191c") +
+  ggtitle("Palabras más usadas") + xlab("Palabras") + ylab("Veces usada") +
+  coord_flip() + theme_minimal()
+```
+
+Palabras más usadas por usuario
+```{r warning=FALSE, message=FALSE}
+conver13 <- converExt %>% 
+  unnest_tokens(input = texto, output = word) %>% 
+  filter(!word %in% palabras) %>% 
+  count(autor, word, sort = TRUE) %>%
+  group_by(autor) %>% 
+  top_n(20, n) %>% 
+  slice(1:20) %>% 
+  arrange(autor, desc(n)) %>% 
+  mutate(order=row_number())
+
+ggplot(conver13, aes(x=reorder(word, n), y=n, fill=autor, color=autor))+
+  geom_col(show.legend = FALSE, width = .1) +
+  geom_point(show.legend = FALSE, size = 3) +
+  ggtitle("Palabras más usadas por usuario") + 
+  xlab("Palabras") + ylab("Veces usada") +
+  facet_wrap(~autor, ncol = 3, scales = "free") +
+  coord_flip() + theme_minimal()
+```
+

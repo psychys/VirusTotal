@@ -2,7 +2,9 @@
 title: 'ABP: VirusTotal'
 author: "Sergio de la Torre Vázquez y Pedro Sánchez Machuca"
 date: '2022-05-16'
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -17,6 +19,12 @@ library(tidyjson)
 library(dplyr)
 library(parallel)
 library(stringr)
+library(arules)
+library(arulesViz)
+library(fcaR)
+library(tidyr)
+library(factoextra)
+library(tidyverse)
 ```
 
 Desde los JSON creamos un dataset
@@ -58,9 +66,71 @@ dep_json <- tabla_json %>%
            scans.McAfee.result, `scans.Avast-Mobile.result`, scans.Avast.result,
            scans.Avira.result, scans.Microsoft.result,
            scans.BitDefenderFalx.result, `scans.AhnLab-V3.result`,
-           scans.Fortinet.result))
+           scans.Fortinet.result, scans.Lionic.result))
 
 dep_json <- dep_json[!is.na(dep_json$vhash),]
 ```
 
+Con todos los JSON en dos datasets(tabla_json con todas las filas y columnas, y dep_json con las filas y columnas más interesantes), empezamos a trabajar con ellos.
 
+
+DPLYR
+Vamos a intentar ver cuales pueden ser las columnas más interesantes del dataset para explorarlo en profundidad y sacar nuestras conclusiones. 
+
+Vamos a empezar con algo sencillo, vamos a agrupar todos los positivos que aparecen en nuestros datos según en que país haya aparecido; así sabremos en que país saltan más deteccioness.
+```{r}
+positivos_pais <- dep_json %>% 
+  group_by(submission.submitter_country) %>% 
+  summarise(sumPositives = sum(positives)) %>% 
+  arrange(desc(sumPositives)) %>% 
+  na.omit()
+
+knitr::kable(positivos_pais)
+```
+
+Vamos a ver contar y ordenar segun el valores nulos de cada antivirus.
+```{r}
+resultados <- tabla_json %>%
+  select(`scans.CAT-QuickHeal.result`, scans.K7GW.result, 
+         scans.Trustlook.result, scans.Cyren.result, 
+         scans.SymantecMobileInsight.result, scans.Symantec.result,
+         `scans.ESET-NOD32.result`, scans.Kaspersky.result,
+         scans.DrWeb.result, `scans.McAfee-GW-Edition.result`, 
+         scans.McAfee.result, `scans.Avast-Mobile.result`,
+         scans.Avast.result, scans.Avira.result, scans.Microsoft.result, 
+         scans.BitDefenderFalx.result, `scans.AhnLab-V3.result`, 
+         scans.Fortinet.result)
+
+negativos <- data.frame(antivirus = colnames(resultados))
+negativos$detecciones <- NA
+for(i in 1:length(negativos$antivirus)){
+  name <- negativos$antivirus[i]
+  negativos$detecciones[i] <- sum(is.na(resultados[, name]))
+}#end for
+negativos <- negativos %>% 
+  arrange(desc(detecciones))
+```
+
+Estos negativos pueden significar dos cosas:
+- En primer lugar puede significar que el anitivirus es malo y no detecta todas los ficheros corruptos que debería.
+- Por otra parte puede significar que es bueno y que, mientras que los demás antivirus detectan cualquier fichero como un virus, estos no los reconocen.
+
+
+REGLAS DE ASOCIACION
+```{r warning=FALSE, message=FALSE}
+df_reglas <- dep_json %>% 
+  drop_na(scans.McAfee.result) %>% 
+  drop_na(scans.Symantec.result) %>% 
+  drop_na(scans.Fortinet.result) %>% 
+  drop_na(scans.Lionic.result) %>%
+  select(submission.submitter_country, additional_info.exiftool.FileType,
+         scans.McAfee.result, scans.Symantec.result,
+         scans.Fortinet.result, scans.Lionic.result)
+reglas <- apriori(df_reglas, parameter = list(supp = 0.01, conf = 0.5, minlen = 2))
+
+summary(reglas)
+```
+Como vemos hemos encontrado 3932 reglas de las cuales 359 son de longitud 2, 
+1155 son de longitud 3, 1431 son de longitud 4, 810 son de longitud 5 y 177
+son de longitud 6. Vemos que la media de soporte es de 0.04034 y de confianza
+0.9794 por lo que son reglas bastante fiables.
